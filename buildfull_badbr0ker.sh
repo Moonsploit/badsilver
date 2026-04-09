@@ -7,10 +7,15 @@ fail() {
     printf "error occurred\n" >&2
     exit 1
 }
-if [ "$board" = "eve" ]; then
-    recoveryver=126
+if ! [ -z $1 ]; then
+	if [ "$board" = "eve" ]; then
+ 	   recoveryver=126
+	else
+ 	   recoveryver=129
+	fi
 else
-    recoveryver=129
+	echo "Usage: sudo bash ./buildfull_badrecovery.sh <board>"
+	exit 1
 fi
 findimage(){ # Taken from murkmod
     echo "Attempting to find recovery image from https://github.com/MercuryWorkshop/chromeos-releases-data data..."
@@ -38,13 +43,18 @@ check_deps() {
 		command -v "$dep" &>/dev/null || echo "$dep"
 	done
 }
-missing_deps=$(check_deps partx sgdisk mkfs.ext4 cryptsetup lvm numfmt tar curl jq)
+missing_deps=$(check_deps partx sgdisk mkfs.ext4 cryptsetup lvm numfmt tar curl wget git python3 protoc gzip jq)
 [ "$missing_deps" ] && fail "The following required commands weren't found in PATH:\n${missing_deps}"
+if ! [ -f .venv ]; then
+	python3 -m venv .venv || fail "couldn't make python venv"
+	source .venv/bin/activate
+	pip install argparse protobuf six || fail "failed to download one or more of the following python packages: argparse, protobuf, six"
+fi
 
 findimage
 
 echo "Downloading 129 recovery image"
-curl --progress-bar -k "$FINAL_URL" -o recovery.zip || fail "Failed to download recovery image"
+wget --show-progress "$FINAL_URL" -O recovery.zip || fail "Failed to download recovery image"
 
 echo "Extracting 129 recovery image"
 unzip recovery.zip || fail "Failed to unzip recovery image"
@@ -53,21 +63,17 @@ echo "Deleting 129 recovery image zip (unneeded now)"
 rm recovery.zip || fail "Failed to delete zipped recovery image"
 
 #more murkmod code
-FILENAME=$(find . -maxdepth 2 -name "chromeos_*.bin") # 2 incase the zip format changes
+FIRSTFILENAME=$(find . -maxdepth 2 -name "chromeos_*.bin") # 2 incase the zip format changes
+FILENAME="badbr0ker-$board.bin"
+mv "$FIRSTFILENAME" "$FILENAME"
 echo "Found recovery image from archive at $FILENAME"
+
+echo "running update_downloader.sh"
+bash update_downloader.sh "$board" || fail "update_downloader.sh exited with an error"
 
 echo "running build_badrecovery.sh"
 sudo ./build_badrecovery.sh -i "$FILENAME" -t unverified || fail "build_badrecovery.sh exited with an error"
-
-OUTPUT_FILE="badsilver_${board}.bin"
-if [ -f "$FILENAME" ]; then
-    mv "$FILENAME" "$OUTPUT_FILE" || fail "Failed to rename output file"
-    echo "Renamed output file to $OUTPUT_FILE"
-else
-    fail "Modified file $FILENAME not found after build_badrecovery.sh completed"
-fi
-
 echo "Cleaning up directory"
-rm -rf badsilver/16295
-echo "No errors detected while building the badsilver image"
-echo "File saved to $OUTPUT_FILE"
+rm -rf badbr0ker/16093
+echo "No errors detected while buildng the badbr0ker image"
+echo "File saved to $FILENAME"
